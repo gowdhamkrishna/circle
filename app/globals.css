@@ -23,4 +23,90 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* Canvas and touch optimizations */
+canvas {
+  touch-action: none !important;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+/* Mobile-specific optimizations */
+@media (max-width: 768px) {
+  body {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    touch-action: manipulation;
+  }
+
+  canvas {
+    touch-action: none !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Prevent double-tap zoom on mobile */
+  * {
+    touch-action: manipulation;
+  }
+}
+
+/* Add smooth transitions for better UX */
+.transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Optimize touch feedback */
+.touch-feedback {
+  position: relative;
+  touch-action: none !important;
+}
+
+.touch-feedback::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50px;
+  height: 50px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  transition: transform 0.3s, opacity 0.3s;
+  pointer-events: none;
+}
+
+.touch-feedback:active::after {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+/* Prevent scrolling on touch devices */
+html, body {
+  touch-action: manipulation;
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  -webkit-overflow-scrolling: touch;
 }
