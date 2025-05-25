@@ -18,6 +18,14 @@ export default function Home() {
   const [warning, setWarning] = useState('');
   const [penPosition, setPenPosition] = useState({ x: 0, y: 0 });
   const [isPenVisible, setIsPenVisible] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(true);
+  const [combo, setCombo] = useState(0);
+  const [lastScore, setLastScore] = useState(0);
+  const [showScoreAnimation, setShowScoreAnimation] = useState(false);
+  const [drawingTime, setDrawingTime] = useState(0);
+  const [showPerfect, setShowPerfect] = useState(false);
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [drawingStartTime, setDrawingStartTime] = useState(0);
 
   const funnyMessages = {
     0: "Did you even try? That's not a circle, that's a crime against geometry! 😱",
@@ -32,7 +40,10 @@ export default function Home() {
     { id: 'perfect', name: 'Perfect Circle', description: 'Draw a circle with 98% or higher rating', unlocked: false },
     { id: 'streak3', name: 'Hot Streak', description: 'Get 3 circles above 80% in a row', unlocked: false },
     { id: 'master', name: 'Circle Master', description: 'Reach level 5', unlocked: false },
-    { id: 'consistent', name: 'Consistency is Key', description: 'Draw 5 circles above 60%', unlocked: false }
+    { id: 'consistent', name: 'Consistency is Key', description: 'Draw 5 circles above 60%', unlocked: false },
+    { id: 'combo5', name: 'Combo Master', description: 'Get a 5x combo', unlocked: false },
+    { id: 'speedster', name: 'Speedster', description: 'Draw a circle in under 3 seconds', unlocked: false },
+    { id: 'persistent', name: 'Persistent Artist', description: 'Draw 50 circles', unlocked: false }
   ];
 
   const getBackgroundColor = (rating) => {
@@ -116,6 +127,7 @@ export default function Home() {
     setIsDrawing(true);
     setIsPenVisible(true);
     setPenPosition({ x, y });
+    setDrawingStartTime(Date.now());
     
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -163,6 +175,7 @@ export default function Home() {
     e.preventDefault();
     setIsDrawing(false);
     setIsPenVisible(false);
+    setDrawingTime((Date.now() - drawingStartTime) / 1000);
     evaluateCircle();
   };
 
@@ -171,6 +184,7 @@ export default function Home() {
       setRating(0);
       setMessage(funnyMessages[0]);
       setWarning('Please draw a more complete shape');
+      setCombo(0);
       return;
     }
 
@@ -252,15 +266,52 @@ export default function Home() {
       }
 
       const totalScore = Math.min(100, finalScore + bonusScore);
+      
+      // Set the score difference before updating the rating
+      const scoreDiff = totalScore - rating;
+      setLastScore(scoreDiff);
+      setShowScoreAnimation(true);
+      
+      // Update the rating after a short delay
+      setTimeout(() => {
+        setRating(totalScore);
+        setTimeout(() => setShowScoreAnimation(false), 1000);
+      }, 100);
+
+      // Combo system with improved feedback
+      if (totalScore >= 60) {
+        const newCombo = combo + 1;
+        setCombo(newCombo);
+        if (newCombo >= 5 && !achievements.find(a => a.id === 'combo5')) {
+          checkAchievements(totalScore, true);
+        }
+      } else {
+        setCombo(0);
+      }
+
+      // Speed achievement check
+      if (drawingTime < 3 && totalScore >= 80 && !achievements.find(a => a.id === 'speedster')) {
+        checkAchievements(totalScore, false, true);
+      }
+
+      // Perfect circle celebration
+      if (totalScore >= 98) {
+        setShowPerfect(true);
+        setTimeout(() => setShowPerfect(false), 2000);
+      }
+
+      // Level up animation
+      const newLevel = Math.floor((totalScore + totalScore) / 1000) + 1;
+      if (newLevel > level) {
+        setShowLevelUp(true);
+        setTimeout(() => setShowLevelUp(false), 2000);
+      }
 
       if (totalScore > bestScore) {
         setBestScore(totalScore);
         localStorage.setItem('bestScore', totalScore.toString());
       }
 
-      setRating(totalScore);
-      const ratingKey = Math.floor(totalScore / 20) * 20;
-      setMessage(funnyMessages[ratingKey]);
       setWarning('');
       checkAchievements(totalScore);
       setAttempts(prev => prev + 1);
@@ -270,10 +321,11 @@ export default function Home() {
       setRating(0);
       setMessage(funnyMessages[0]);
       setWarning('Please try drawing again');
+      setCombo(0);
     }
   };
 
-  const checkAchievements = (score) => {
+  const checkAchievements = (score, isCombo = false, isSpeed = false) => {
     const newAchievements = [...achievements];
     let hasNewAchievement = false;
 
@@ -301,6 +353,16 @@ export default function Home() {
 
     if (newLevel >= 5 && !achievements.find(a => a.id === 'master')) {
       newAchievements.push({ ...achievementsList.find(a => a.id === 'master'), unlocked: true });
+      hasNewAchievement = true;
+    }
+
+    if (isCombo && !achievements.find(a => a.id === 'combo5')) {
+      newAchievements.push({ ...achievementsList.find(a => a.id === 'combo5'), unlocked: true });
+      hasNewAchievement = true;
+    }
+
+    if (isSpeed && !achievements.find(a => a.id === 'speedster')) {
+      newAchievements.push({ ...achievementsList.find(a => a.id === 'speedster'), unlocked: true });
       hasNewAchievement = true;
     }
 
@@ -350,6 +412,20 @@ export default function Home() {
               <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 dark:from-blue-500/20 dark:to-purple-500/20 rounded-lg blur-sm"></div>
             </h1>
             
+            {showTutorial && (
+              <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 animate-fade-in">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  🎯 Draw the perfect circle! Follow the blue guide circle and try to match it as closely as possible.
+                  <button 
+                    onClick={() => setShowTutorial(false)}
+                    className="ml-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                  >
+                    Got it!
+                  </button>
+                </p>
+              </div>
+            )}
+
             <div className="flex justify-center items-center mb-4">
               <div className="relative group">
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 dark:from-blue-500/30 dark:to-purple-500/30 rounded-lg blur-md group-hover:blur-lg transition-all duration-300"></div>
@@ -378,14 +454,38 @@ export default function Home() {
                     <div className="absolute inset-1 bg-blue-500/30 rounded-full"></div>
                   </div>
                 )}
+                {combo > 1 && (
+                  <div className="absolute top-2 right-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-2 py-1 rounded-full text-xs font-bold animate-bounce">
+                    {combo}x Combo!
+                  </div>
+                )}
+                {showPerfect && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-4xl font-bold text-green-500 animate-bounce">
+                      Perfect! ✨
+                    </div>
+                  </div>
+                )}
+                {showLevelUp && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-3xl font-bold text-blue-500 animate-bounce">
+                      Level Up! 🎉
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="flex flex-row gap-2">
                 <div className="flex-1 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm p-2 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-gray-200/50 dark:border-gray-700/50">
-                  <div className={`text-xl font-bold ${getBackgroundColor(rating)} text-white rounded-lg p-1 text-center transition-all duration-300`}>
+                  <div className={`text-xl font-bold ${getBackgroundColor(rating)} text-white rounded-lg p-1 text-center transition-all duration-300 relative`}>
                     {rating}%
+                    {showScoreAnimation && (
+                      <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 text-green-500 font-bold animate-bounce">
+                        {lastScore > 0 ? '+' : ''}{lastScore}
+                      </div>
+                    )}
                   </div>
                   <p className="mt-1 text-gray-600 dark:text-gray-300 text-center text-xs line-clamp-2">{message}</p>
                 </div>
