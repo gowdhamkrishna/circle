@@ -115,7 +115,11 @@ export default function Home() {
     const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
     const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
     
-    return { x, y };
+    // Clamp coordinates to canvas boundaries
+    const clampedX = Math.max(0, Math.min(canvas.width, x));
+    const clampedY = Math.max(0, Math.min(canvas.height, y));
+    
+    return { x: clampedX, y: clampedY };
   };
 
   const startDrawing = (e) => {
@@ -148,9 +152,13 @@ export default function Home() {
     const ctx = canvas.getContext('2d');
     const { x, y } = getCoordinates(e);
 
-    // Update pen position
-    setPenPosition({ x, y });
-    setIsPenVisible(true);
+    // Only update pen position if within canvas bounds
+    if (x >= 0 && x <= canvas.width && y >= 0 && y <= canvas.height) {
+      setPenPosition({ x, y });
+      setIsPenVisible(true);
+    } else {
+      setIsPenVisible(false);
+    }
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -209,9 +217,9 @@ export default function Home() {
         radii.reduce((sum, r) => sum + Math.pow(r - avgRadius, 2), 0) / radii.length
       );
 
-      // More forgiving circularity score
+      // Stricter circularity score
       const circularityScore = Math.max(0, Math.min(100, 
-        100 - (stdDev / avgRadius) * 100 // Reduced penalty for small deviations
+        100 - (stdDev / avgRadius) * 150 // Increased penalty for deviations
       ));
 
       const firstPoint = points[0];
@@ -221,20 +229,20 @@ export default function Home() {
         Math.pow(lastPoint.y - firstPoint.y, 2)
       );
       
-      // More forgiving closure score
+      // Stricter closure score
       const closureScore = Math.max(0, Math.min(100,
-        100 - (closureDistance / avgRadius) * 50 // Reduced penalty for closure
+        100 - (closureDistance / avgRadius) * 100 // Increased penalty for closure
       ));
 
       const canvas = canvasRef.current;
       const idealRadius = Math.min(canvas.width, canvas.height) * 0.35;
       
-      // More forgiving size score
+      // Stricter size score
       const sizeScore = Math.max(0, Math.min(100,
-        100 - (Math.abs(avgRadius - idealRadius) / idealRadius) * 100 // Reduced penalty for size
+        100 - (Math.abs(avgRadius - idealRadius) / idealRadius) * 150 // Increased penalty for size
       ));
 
-      // Calculate smoothness score with more tolerance
+      // Calculate smoothness score with less tolerance
       const angles = [];
       for (let i = 1; i < points.length - 1; i++) {
         const prev = points[i - 1];
@@ -254,24 +262,19 @@ export default function Home() {
       
       const avgAngle = angles.reduce((sum, a) => sum + a, 0) / angles.length;
       const smoothnessScore = Math.max(0, Math.min(100,
-        100 - (avgAngle / Math.PI) * 75 // Reduced penalty for smoothness
+        100 - (avgAngle / Math.PI) * 100 // Increased penalty for smoothness
       ));
 
-      // Adjusted weights for better scoring
+      // Adjusted weights for stricter scoring
       const finalScore = Math.round(
-        circularityScore * 0.4 +     // Increased weight for circularity
-        closureScore * 0.2 +         // Reduced weight for closure
-        sizeScore * 0.25 +           // Slightly reduced weight for size
-        smoothnessScore * 0.15       // Kept smoothness weight the same
+        circularityScore * 0.45 +     // Increased weight for circularity
+        closureScore * 0.25 +         // Increased weight for closure
+        sizeScore * 0.2 +             // Reduced weight for size
+        smoothnessScore * 0.1         // Reduced weight for smoothness
       );
 
-      // Bonus points for very good circles
-      let bonusScore = 0;
-      if (circularityScore > 90 && closureScore > 90) {
-        bonusScore = 5; // Add bonus points for very good circles
-      }
-
-      const totalScore = Math.min(100, finalScore + bonusScore);
+      // Remove bonus points for very good circles
+      const totalScore = Math.min(99, finalScore); // Cap at 99% for hand-drawn circles
       
       // Set the score difference before updating the rating
       const scoreDiff = totalScore - rating;
@@ -285,7 +288,7 @@ export default function Home() {
       }, 100);
 
       // Combo system with improved feedback
-      if (totalScore >= 60) {
+      if (totalScore >= 70) { // Increased threshold for combos
         const newCombo = combo + 1;
         setCombo(newCombo);
         if (newCombo >= 5 && !achievements.find(a => a.id === 'combo5')) {
@@ -295,13 +298,13 @@ export default function Home() {
         setCombo(0);
       }
 
-      // Speed achievement check
-      if (drawingTime < 3 && totalScore >= 80 && !achievements.find(a => a.id === 'speedster')) {
+      // Speed achievement check with higher threshold
+      if (drawingTime < 3 && totalScore >= 85 && !achievements.find(a => a.id === 'speedster')) {
         checkAchievements(totalScore, false, true);
       }
 
-      // Perfect circle celebration
-      if (totalScore >= 98) {
+      // Perfect circle celebration with higher threshold
+      if (totalScore >= 95) {
         setShowPerfect(true);
         setTimeout(() => setShowPerfect(false), 2000);
       }
@@ -318,15 +321,15 @@ export default function Home() {
         localStorage.setItem('bestScore', totalScore.toString());
       }
 
-      // God Artist achievement check
-      if (!showReference && totalScore >= 98) {
+      // God Artist achievement check with higher threshold
+      if (!showReference && totalScore >= 95) {
         const newAttempts = godArtistAttempts + 1;
         setGodArtistAttempts(newAttempts);
         if (newAttempts >= 3 && !isGodArtist) {
           setIsGodArtist(true);
           checkAchievements(totalScore, false, false, true);
         }
-      } else if (!showReference && totalScore < 98) {
+      } else if (!showReference && totalScore < 95) {
         setGodArtistAttempts(0);
       }
 
@@ -496,7 +499,8 @@ export default function Home() {
                     style={{
                       left: `${penPosition.x}px`,
                       top: `${penPosition.y}px`,
-                      transform: 'translate(-50%, -50%)'
+                      transform: 'translate(-50%, -50%)',
+                      opacity: isPenVisible ? 1 : 0
                     }}
                   >
                     <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-sm animate-pulse"></div>
