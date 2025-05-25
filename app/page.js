@@ -26,6 +26,9 @@ export default function Home() {
   const [showPerfect, setShowPerfect] = useState(false);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [drawingStartTime, setDrawingStartTime] = useState(0);
+  const [showReference, setShowReference] = useState(true);
+  const [isGodArtist, setIsGodArtist] = useState(false);
+  const [godArtistAttempts, setGodArtistAttempts] = useState(0);
 
   const funnyMessages = {
     0: "Did you even try? That's not a circle, that's a crime against geometry! 😱",
@@ -43,7 +46,8 @@ export default function Home() {
     { id: 'consistent', name: 'Consistency is Key', description: 'Draw 5 circles above 60%', unlocked: false },
     { id: 'combo5', name: 'Combo Master', description: 'Get a 5x combo', unlocked: false },
     { id: 'speedster', name: 'Speedster', description: 'Draw a circle in under 3 seconds', unlocked: false },
-    { id: 'persistent', name: 'Persistent Artist', description: 'Draw 50 circles', unlocked: false }
+    { id: 'persistent', name: 'Persistent Artist', description: 'Draw 50 circles', unlocked: false },
+    { id: 'godartist', name: 'God Artist', description: 'Draw 3 perfect circles without reference', unlocked: false }
   ];
 
   const getBackgroundColor = (rating) => {
@@ -89,15 +93,17 @@ export default function Home() {
     ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
     ctx.fill();
 
-    // Draw reference circle with improved visibility
-    const radius = Math.min(width, height) * 0.35;
-    ctx.strokeStyle = '#60a5fa';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([8, 4]);
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    // Draw reference circle only if showReference is true
+    if (showReference) {
+      const radius = Math.min(width, height) * 0.35;
+      ctx.strokeStyle = '#60a5fa';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([8, 4]);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   };
 
   const getCoordinates = (e) => {
@@ -312,6 +318,18 @@ export default function Home() {
         localStorage.setItem('bestScore', totalScore.toString());
       }
 
+      // God Artist achievement check
+      if (!showReference && totalScore >= 98) {
+        const newAttempts = godArtistAttempts + 1;
+        setGodArtistAttempts(newAttempts);
+        if (newAttempts >= 3 && !isGodArtist) {
+          setIsGodArtist(true);
+          checkAchievements(totalScore, false, false, true);
+        }
+      } else if (!showReference && totalScore < 98) {
+        setGodArtistAttempts(0);
+      }
+
       setWarning('');
       checkAchievements(totalScore);
       setAttempts(prev => prev + 1);
@@ -325,7 +343,7 @@ export default function Home() {
     }
   };
 
-  const checkAchievements = (score, isCombo = false, isSpeed = false) => {
+  const checkAchievements = (score, isCombo = false, isSpeed = false, isGodArtist = false) => {
     const newAchievements = [...achievements];
     let hasNewAchievement = false;
 
@@ -363,6 +381,11 @@ export default function Home() {
 
     if (isSpeed && !achievements.find(a => a.id === 'speedster')) {
       newAchievements.push({ ...achievementsList.find(a => a.id === 'speedster'), unlocked: true });
+      hasNewAchievement = true;
+    }
+
+    if (isGodArtist && !achievements.find(a => a.id === 'godartist')) {
+      newAchievements.push({ ...achievementsList.find(a => a.id === 'godartist'), unlocked: true });
       hasNewAchievement = true;
     }
 
@@ -407,10 +430,37 @@ export default function Home() {
       <div className="w-full max-w-[600px] mx-auto px-4 py-4">
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
           <div className="p-4">
-            <h1 className="text-xl font-bold text-center text-gray-800 dark:text-white mb-4 relative">
-              <span className="relative z-10">Circle Drawing Challenge</span>
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 dark:from-blue-500/20 dark:to-purple-500/20 rounded-lg blur-sm"></div>
-            </h1>
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-xl font-bold text-gray-800 dark:text-white relative">
+                <span className="relative z-10">
+                  {isGodArtist ? (
+                    <span className="bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent">
+                      God Artist Mode ✨
+                    </span>
+                  ) : (
+                    "Circle Drawing Challenge"
+                  )}
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 dark:from-blue-500/20 dark:to-purple-500/20 rounded-lg blur-sm"></div>
+              </h1>
+              <button
+                onClick={() => {
+                  setShowReference(!showReference);
+                  if (!showReference) {
+                    setGodArtistAttempts(0);
+                  }
+                }}
+                className="px-3 py-1 text-xs font-medium rounded-full transition-all duration-300"
+                style={{
+                  background: showReference 
+                    ? 'linear-gradient(to right, #3b82f6, #8b5cf6)'
+                    : 'linear-gradient(to right, #f59e0b, #ef4444)',
+                  color: 'white'
+                }}
+              >
+                {showReference ? 'Hide Guide' : 'Show Guide'}
+              </button>
+            </div>
             
             {showTutorial && (
               <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 animate-fade-in">
