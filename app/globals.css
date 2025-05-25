@@ -72,7 +72,7 @@ canvas:active {
 
   main {
     height: 100vh;
-    height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    height: 100dvh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -89,7 +89,7 @@ canvas:active {
     background: #ffffff !important;
     position: relative;
     flex: 1;
-    min-height: 0; /* Important for flex layout */
+    min-height: 0;
   }
 
   canvas:active {
