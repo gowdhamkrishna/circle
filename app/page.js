@@ -16,6 +16,8 @@ export default function Home() {
   const [totalScore, setTotalScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [warning, setWarning] = useState('');
+  const [penPosition, setPenPosition] = useState({ x: 0, y: 0 });
+  const [isPenVisible, setIsPenVisible] = useState(false);
 
   const funnyMessages = {
     0: "Did you even try? That's not a circle, that's a crime against geometry! 😱",
@@ -34,7 +36,7 @@ export default function Home() {
   ];
 
   const getBackgroundColor = (rating) => {
-    if (rating >= 98) return 'bg-gradient-to-br from-green-400 to-green-600';
+    if (rating >= 98) return 'bg-gradient-to-br from-green-400 to-green-600 animate-pulse';
     if (rating >= 80) return 'bg-gradient-to-br from-blue-400 to-blue-600';
     if (rating >= 60) return 'bg-gradient-to-br from-yellow-400 to-yellow-600';
     if (rating >= 40) return 'bg-gradient-to-br from-orange-400 to-orange-600';
@@ -76,11 +78,11 @@ export default function Home() {
     ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
     ctx.fill();
 
-    // Draw reference circle
+    // Draw reference circle with improved visibility
     const radius = Math.min(width, height) * 0.35;
     ctx.strokeStyle = '#60a5fa';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([8, 4]);
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
     ctx.stroke();
@@ -112,6 +114,8 @@ export default function Home() {
     setMessage('');
     setPoints([]);
     setIsDrawing(true);
+    setIsPenVisible(true);
+    setPenPosition({ x, y });
     
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -126,10 +130,28 @@ export default function Home() {
     const ctx = canvas.getContext('2d');
     const { x, y } = getCoordinates(e);
 
+    // Update pen position
+    setPenPosition({ x, y });
+    setIsPenVisible(true);
+
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.strokeStyle = '#000000';
+
+    // Add smooth line drawing
+    if (points.length > 1) {
+      const prevPoint = points[points.length - 1];
+      const midPoint = {
+        x: (prevPoint.x + x) / 2,
+        y: (prevPoint.y + y) / 2
+      };
+
+      ctx.beginPath();
+      ctx.moveTo(prevPoint.x, prevPoint.y);
+      ctx.quadraticCurveTo(prevPoint.x, prevPoint.y, midPoint.x, midPoint.y);
+      ctx.stroke();
+    }
 
     ctx.lineTo(x, y);
     ctx.stroke();
@@ -140,6 +162,7 @@ export default function Home() {
     if (!isDrawing) return;
     e.preventDefault();
     setIsDrawing(false);
+    setIsPenVisible(false);
     evaluateCircle();
   };
 
@@ -166,8 +189,9 @@ export default function Home() {
         radii.reduce((sum, r) => sum + Math.pow(r - avgRadius, 2), 0) / radii.length
       );
 
+      // More forgiving circularity score
       const circularityScore = Math.max(0, Math.min(100, 
-        100 - (stdDev / avgRadius) * 100
+        100 - (stdDev / avgRadius) * 100 // Reduced penalty for small deviations
       ));
 
       const firstPoint = points[0];
@@ -176,32 +200,69 @@ export default function Home() {
         Math.pow(lastPoint.x - firstPoint.x, 2) + 
         Math.pow(lastPoint.y - firstPoint.y, 2)
       );
+      
+      // More forgiving closure score
       const closureScore = Math.max(0, Math.min(100,
-        100 - (closureDistance / avgRadius) * 50
+        100 - (closureDistance / avgRadius) * 50 // Reduced penalty for closure
       ));
 
       const canvas = canvasRef.current;
       const idealRadius = Math.min(canvas.width, canvas.height) * 0.35;
+      
+      // More forgiving size score
       const sizeScore = Math.max(0, Math.min(100,
-        100 - (Math.abs(avgRadius - idealRadius) / idealRadius) * 100
+        100 - (Math.abs(avgRadius - idealRadius) / idealRadius) * 100 // Reduced penalty for size
       ));
 
+      // Calculate smoothness score with more tolerance
+      const angles = [];
+      for (let i = 1; i < points.length - 1; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        const next = points[i + 1];
+        
+        const angle = Math.atan2(
+          next.y - curr.y,
+          next.x - curr.x
+        ) - Math.atan2(
+          curr.y - prev.y,
+          curr.x - prev.x
+        );
+        
+        angles.push(Math.abs(angle));
+      }
+      
+      const avgAngle = angles.reduce((sum, a) => sum + a, 0) / angles.length;
+      const smoothnessScore = Math.max(0, Math.min(100,
+        100 - (avgAngle / Math.PI) * 75 // Reduced penalty for smoothness
+      ));
+
+      // Adjusted weights for better scoring
       const finalScore = Math.round(
-        circularityScore * 0.4 +
-        closureScore * 0.2 +
-        sizeScore * 0.4
+        circularityScore * 0.4 +     // Increased weight for circularity
+        closureScore * 0.2 +         // Reduced weight for closure
+        sizeScore * 0.25 +           // Slightly reduced weight for size
+        smoothnessScore * 0.15       // Kept smoothness weight the same
       );
 
-      if (finalScore > bestScore) {
-        setBestScore(finalScore);
-        localStorage.setItem('bestScore', finalScore.toString());
+      // Bonus points for very good circles
+      let bonusScore = 0;
+      if (circularityScore > 90 && closureScore > 90) {
+        bonusScore = 5; // Add bonus points for very good circles
       }
 
-      setRating(finalScore);
-      const ratingKey = Math.floor(finalScore / 20) * 20;
+      const totalScore = Math.min(100, finalScore + bonusScore);
+
+      if (totalScore > bestScore) {
+        setBestScore(totalScore);
+        localStorage.setItem('bestScore', totalScore.toString());
+      }
+
+      setRating(totalScore);
+      const ratingKey = Math.floor(totalScore / 20) * 20;
       setMessage(funnyMessages[ratingKey]);
       setWarning('');
-      checkAchievements(finalScore);
+      checkAchievements(totalScore);
       setAttempts(prev => prev + 1);
 
     } catch (error) {
@@ -280,61 +341,79 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-start p-0 bg-gray-50 dark:bg-gray-900">
+    <main className="min-h-screen flex flex-col items-center justify-start p-0 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="w-full max-w-[600px] mx-auto px-4 py-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg overflow-hidden border border-gray-200/50 dark:border-gray-700/50">
           <div className="p-4">
-            <h1 className="text-xl font-bold text-center text-gray-800 dark:text-white mb-4">
-              Circle Drawing Challenge
+            <h1 className="text-xl font-bold text-center text-gray-800 dark:text-white mb-4 relative">
+              <span className="relative z-10">Circle Drawing Challenge</span>
+              <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 dark:from-blue-500/20 dark:to-purple-500/20 rounded-lg blur-sm"></div>
             </h1>
             
             <div className="flex justify-center items-center mb-4">
-              <canvas
-                ref={canvasRef}
-                className="w-full max-w-[500px] aspect-square bg-white dark:bg-gray-700 rounded-lg border-2 border-gray-200 dark:border-gray-600 touch-none"
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                onTouchStart={startDrawing}
-                onTouchMove={draw}
-                onTouchEnd={stopDrawing}
-              />
+              <div className="relative group">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 dark:from-blue-500/30 dark:to-purple-500/30 rounded-lg blur-md group-hover:blur-lg transition-all duration-300"></div>
+                <canvas
+                  ref={canvasRef}
+                  className="relative w-full max-w-[500px] aspect-square bg-white dark:bg-gray-700 rounded-lg border-2 border-gray-200 dark:border-gray-600 touch-none shadow-sm hover:shadow-xl transition-all duration-300"
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
+                />
+                {isPenVisible && (
+                  <div 
+                    className="absolute w-6 h-6 pointer-events-none transition-transform duration-100 ease-out"
+                    style={{
+                      left: `${penPosition.x}px`,
+                      top: `${penPosition.y}px`,
+                      transform: 'translate(-50%, -50%)'
+                    }}
+                  >
+                    <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-sm animate-pulse"></div>
+                    <div className="absolute inset-0 border-2 border-blue-500 rounded-full"></div>
+                    <div className="absolute inset-1 bg-blue-500/30 rounded-full"></div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="space-y-4">
               <div className="flex flex-row gap-2">
-                <div className="flex-1 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm">
-                  <div className={`text-xl font-bold ${getBackgroundColor(rating)} text-white rounded-lg p-1 text-center`}>
+                <div className="flex-1 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm p-2 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-gray-200/50 dark:border-gray-700/50">
+                  <div className={`text-xl font-bold ${getBackgroundColor(rating)} text-white rounded-lg p-1 text-center transition-all duration-300`}>
                     {rating}%
                   </div>
                   <p className="mt-1 text-gray-600 dark:text-gray-300 text-center text-xs line-clamp-2">{message}</p>
                 </div>
 
-                <div className="flex-1 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm">
+                <div className="flex-1 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm p-2 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-gray-200/50 dark:border-gray-700/50">
                   <div className="grid grid-cols-2 gap-1">
-                    <div className="text-xs">
-                      <span className="text-gray-500 dark:text-gray-400">Lvl:</span>
-                      <span className="ml-1 text-gray-800 dark:text-gray-200">{level}</span>
+                    <div className="text-xs group">
+                      <span className="text-gray-500 dark:text-gray-400 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors">Lvl:</span>
+                      <span className="ml-1 text-gray-800 dark:text-gray-200 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors">{level}</span>
                     </div>
-                    <div className="text-xs">
-                      <span className="text-gray-500 dark:text-gray-400">Best:</span>
-                      <span className="ml-1 text-gray-800 dark:text-gray-200">{bestScore}%</span>
+                    <div className="text-xs group">
+                      <span className="text-gray-500 dark:text-gray-400 group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors">Best:</span>
+                      <span className="ml-1 text-gray-800 dark:text-gray-200 group-hover:text-green-600 dark:group-hover:text-green-300 transition-colors">{bestScore}%</span>
                     </div>
-                    <div className="text-xs">
-                      <span className="text-gray-500 dark:text-gray-400">Try:</span>
-                      <span className="ml-1 text-gray-800 dark:text-gray-200">{attempts}</span>
+                    <div className="text-xs group">
+                      <span className="text-gray-500 dark:text-gray-400 group-hover:text-purple-500 dark:group-hover:text-purple-400 transition-colors">Try:</span>
+                      <span className="ml-1 text-gray-800 dark:text-gray-200 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors">{attempts}</span>
                     </div>
-                    <div className="text-xs">
-                      <span className="text-gray-500 dark:text-gray-400">Strk:</span>
-                      <span className="ml-1 text-gray-800 dark:text-gray-200">{streak}</span>
+                    <div className="text-xs group">
+                      <span className="text-gray-500 dark:text-gray-400 group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors">Strk:</span>
+                      <span className="ml-1 text-gray-800 dark:text-gray-200 group-hover:text-orange-600 dark:group-hover:text-orange-300 transition-colors">{streak}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {warning && (
-                <div className="p-2 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded-lg text-center text-xs">
+                <div className="p-2 bg-yellow-100/90 dark:bg-yellow-900/90 backdrop-blur-sm text-yellow-800 dark:text-yellow-200 rounded-lg text-center text-xs animate-fade-in border border-yellow-200/50 dark:border-yellow-700/50">
                   {warning}
                 </div>
               )}
@@ -344,14 +423,23 @@ export default function Home() {
                   {achievements.map((achievement) => (
                     <div
                       key={achievement.id}
-                      className="bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 p-2 rounded-lg"
+                      className="bg-green-100/90 dark:bg-green-900/90 backdrop-blur-sm text-green-800 dark:text-green-200 p-2 rounded-lg hover:shadow-md transition-all duration-300 border border-green-200/50 dark:border-green-700/50 group"
                     >
-                      <p className="font-semibold text-xs">{achievement.name}</p>
-                      <p className="text-[10px] line-clamp-2">{achievement.description}</p>
+                      <p className="font-semibold text-xs group-hover:text-green-600 dark:group-hover:text-green-300 transition-colors">{achievement.name}</p>
+                      <p className="text-[10px] line-clamp-2 group-hover:text-green-700 dark:group-hover:text-green-400 transition-colors">{achievement.description}</p>
                     </div>
                   ))}
                 </div>
               )}
+
+              <div className="text-center mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Developed by{' '}
+                  <span className="font-semibold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent hover:from-blue-600 hover:to-purple-600 transition-all duration-300">
+                    Gowdham Krishna
+                  </span>
+                </p>
+              </div>
             </div>
           </div>
         </div>
