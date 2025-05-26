@@ -29,6 +29,7 @@ export default function Home() {
   const [showReference, setShowReference] = useState(true);
   const [isGodArtist, setIsGodArtist] = useState(false);
   const [godArtistAttempts, setGodArtistAttempts] = useState(0);
+  const audioRef = useRef(null);
 
   const funnyMessages = {
     0: "Did you even try? That's not a circle, that's a crime against geometry! 😱",
@@ -86,7 +87,7 @@ export default function Home() {
     // Draw center point and reference circle
     const centerX = width / 2;
     const centerY = height / 2;
-    
+
     // Draw center point
     ctx.fillStyle = '#ef4444';
     ctx.beginPath();
@@ -139,6 +140,11 @@ export default function Home() {
     setPenPosition({ x, y });
     setDrawingStartTime(Date.now());
     
+    // Initial haptic feedback when pen touches canvas
+    if ('vibrate' in navigator) {
+      navigator.vibrate(50);
+    }
+    
     ctx.beginPath();
     ctx.moveTo(x, y);
     setPoints([{ x, y }]);
@@ -156,6 +162,11 @@ export default function Home() {
     if (x >= 0 && x <= canvas.width && y >= 0 && y <= canvas.height) {
       setPenPosition({ x, y });
       setIsPenVisible(true);
+      
+      // Continuous haptic feedback while drawing
+      if ('vibrate' in navigator) {
+        navigator.vibrate(10);
+      }
     } else {
       setIsPenVisible(false);
     }
@@ -163,7 +174,13 @@ export default function Home() {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = 2.5;
-    ctx.strokeStyle = '#000000';
+    
+    // Set pen color based on dark/light mode
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      ctx.strokeStyle = '#60a5fa'; // Light blue color for dark mode
+    } else {
+      ctx.strokeStyle = '#000000'; // Black for light mode
+    }
 
     // Add smooth line drawing
     if (points.length > 1) {
@@ -190,6 +207,12 @@ export default function Home() {
     setIsDrawing(false);
     setIsPenVisible(false);
     setDrawingTime((Date.now() - drawingStartTime) / 1000);
+    
+    // Final haptic feedback when stopping
+    if ('vibrate' in navigator) {
+      navigator.vibrate(50);
+    }
+    
     evaluateCircle();
   };
 
@@ -203,25 +226,34 @@ export default function Home() {
     }
 
     try {
+      // Calculate center using weighted average for better accuracy
+      const weights = points.map((_, i) => 1 - Math.abs(i - points.length/2) / points.length);
       const center = {
-        x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
-        y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+        x: points.reduce((sum, p, i) => sum + p.x * weights[i], 0) / weights.reduce((a, b) => a + b, 0),
+        y: points.reduce((sum, p, i) => sum + p.y * weights[i], 0) / weights.reduce((a, b) => a + b, 0)
       };
 
+      // Calculate radii with outlier removal
       const radii = points.map(p => 
         Math.sqrt(Math.pow(p.x - center.x, 2) + Math.pow(p.y - center.y, 2))
       );
-
-      const avgRadius = radii.reduce((sum, r) => sum + r, 0) / radii.length;
-      const stdDev = Math.sqrt(
-        radii.reduce((sum, r) => sum + Math.pow(r - avgRadius, 2), 0) / radii.length
+      
+      // Remove outliers (values more than 2 standard deviations from mean)
+      const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
+      const stdDev = Math.sqrt(radii.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / radii.length);
+      const filteredRadii = radii.filter(r => Math.abs(r - mean) <= 2 * stdDev);
+      
+      const avgRadius = filteredRadii.reduce((sum, r) => sum + r, 0) / filteredRadii.length;
+      const radiusStdDev = Math.sqrt(
+        filteredRadii.reduce((sum, r) => sum + Math.pow(r - avgRadius, 2), 0) / filteredRadii.length
       );
 
-      // Stricter circularity score
+      // Enhanced circularity score with multiple factors
       const circularityScore = Math.max(0, Math.min(100, 
-        100 - (stdDev / avgRadius) * 150 // Increased penalty for deviations
+        100 - (radiusStdDev / avgRadius) * 150
       ));
 
+      // Improved closure detection
       const firstPoint = points[0];
       const lastPoint = points[points.length - 1];
       const closureDistance = Math.sqrt(
@@ -229,26 +261,32 @@ export default function Home() {
         Math.pow(lastPoint.y - firstPoint.y, 2)
       );
       
-      // Stricter closure score
+      // Enhanced closure score with angle consideration
+      const startAngle = Math.atan2(firstPoint.y - center.y, firstPoint.x - center.x);
+      const endAngle = Math.atan2(lastPoint.y - center.y, lastPoint.x - center.x);
+      const angleDiff = Math.abs(endAngle - startAngle);
       const closureScore = Math.max(0, Math.min(100,
-        100 - (closureDistance / avgRadius) * 100 // Increased penalty for closure
+        100 - (closureDistance / avgRadius) * 80 - (angleDiff / (2 * Math.PI)) * 20
       ));
 
       const canvas = canvasRef.current;
       const idealRadius = Math.min(canvas.width, canvas.height) * 0.35;
       
-      // Stricter size score
+      // Enhanced size score with progressive penalties
+      const sizeDiff = Math.abs(avgRadius - idealRadius) / idealRadius;
       const sizeScore = Math.max(0, Math.min(100,
-        100 - (Math.abs(avgRadius - idealRadius) / idealRadius) * 150 // Increased penalty for size
+        100 - Math.pow(sizeDiff, 1.5) * 150
       ));
 
-      // Calculate smoothness score with less tolerance
+      // Enhanced smoothness score with curvature analysis
       const angles = [];
+      const curvatures = [];
       for (let i = 1; i < points.length - 1; i++) {
         const prev = points[i - 1];
         const curr = points[i];
         const next = points[i + 1];
         
+        // Calculate angle between segments
         const angle = Math.atan2(
           next.y - curr.y,
           next.x - curr.x
@@ -256,31 +294,54 @@ export default function Home() {
           curr.y - prev.y,
           curr.x - prev.x
         );
-        
         angles.push(Math.abs(angle));
+
+        // Calculate curvature
+        const dx1 = curr.x - prev.x;
+        const dy1 = curr.y - prev.y;
+        const dx2 = next.x - curr.x;
+        const dy2 = next.y - curr.y;
+        const curvature = Math.abs(dx1 * dy2 - dy1 * dx2) / 
+          Math.pow(Math.sqrt(dx1 * dx1 + dy1 * dy1) * Math.sqrt(dx2 * dx2 + dy2 * dy2), 1.5);
+        curvatures.push(curvature);
       }
       
       const avgAngle = angles.reduce((sum, a) => sum + a, 0) / angles.length;
+      const avgCurvature = curvatures.reduce((sum, c) => sum + c, 0) / curvatures.length;
       const smoothnessScore = Math.max(0, Math.min(100,
-        100 - (avgAngle / Math.PI) * 100 // Increased penalty for smoothness
+        100 - (avgAngle / Math.PI) * 60 - avgCurvature * 40
       ));
 
-      // Adjusted weights for stricter scoring
+      // Adjusted weights for more balanced scoring
       const finalScore = Math.round(
-        circularityScore * 0.45 +     // Increased weight for circularity
-        closureScore * 0.25 +         // Increased weight for closure
-        sizeScore * 0.2 +             // Reduced weight for size
-        smoothnessScore * 0.1         // Reduced weight for smoothness
+        circularityScore * 0.4 +     // Circularity
+        closureScore * 0.25 +        // Closure
+        sizeScore * 0.2 +            // Size
+        smoothnessScore * 0.15       // Smoothness
       );
 
-      // Remove bonus points for very good circles
-      const totalScore = Math.min(99, finalScore); // Cap at 99% for hand-drawn circles
+      // Cap score at 99% for hand-drawn circles
+      const totalScore = Math.min(99, finalScore);
+      
+      // Play success sound based on score
+      playSuccessSound(totalScore);
+      
+      // Trigger vibration feedback based on score
+      if (navigator.vibrate) {
+        if (totalScore >= 95) {
+          navigator.vibrate([50, 50, 50]); // Triple vibration for excellent score
+        } else if (totalScore >= 80) {
+          navigator.vibrate([100]); // Double vibration for good score
+        } else {
+          navigator.vibrate([50]); // Single vibration for other scores
+        }
+      }
       
       // Set the score difference before updating the rating
       const scoreDiff = totalScore - rating;
       setLastScore(scoreDiff);
       setShowScoreAnimation(true);
-      
+
       // Update the rating after a short delay
       setTimeout(() => {
         setRating(totalScore);
@@ -428,6 +489,87 @@ export default function Home() {
     return () => window.removeEventListener('resize', initializeCanvas);
   }, []);
 
+  // Initialize audio context and sounds
+  useEffect(() => {
+    // Create audio context
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioContext = new AudioContext();
+    
+    // Create oscillator for success sound
+    const createSuccessSound = () => {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 note
+      gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+      
+      return { oscillator, gainNode };
+    };
+    
+    audioRef.current = {
+      context: audioContext,
+      createSuccessSound
+    };
+    
+    return () => {
+      if (audioContext.state !== 'closed') {
+        audioContext.close();
+      }
+    };
+  }, []);
+
+  const playSuccessSound = (score) => {
+    if (!audioRef.current) return;
+    
+    const { oscillator, gainNode } = audioRef.current.createSuccessSound();
+    const { context } = audioRef.current;
+    
+    // Different sounds based on score
+    if (score >= 95) {
+      // Perfect circle sound - ascending arpeggio
+      oscillator.frequency.setValueAtTime(440, context.currentTime); // A4
+      oscillator.frequency.setValueAtTime(554.37, context.currentTime + 0.1); // C#5
+      oscillator.frequency.setValueAtTime(659.25, context.currentTime + 0.2); // E5
+      gainNode.gain.setValueAtTime(0.1, context.currentTime);
+      gainNode.gain.setValueAtTime(0.1, context.currentTime + 0.3);
+      gainNode.gain.linearRampToValueAtTime(0, context.currentTime + 0.4);
+    } else if (score >= 80) {
+      // Good circle sound - two notes
+      oscillator.frequency.setValueAtTime(440, context.currentTime); // A4
+      oscillator.frequency.setValueAtTime(523.25, context.currentTime + 0.1); // C5
+      gainNode.gain.setValueAtTime(0.1, context.currentTime);
+      gainNode.gain.setValueAtTime(0.1, context.currentTime + 0.2);
+      gainNode.gain.linearRampToValueAtTime(0, context.currentTime + 0.3);
+    } else {
+      // Basic circle sound - single note
+      oscillator.frequency.setValueAtTime(440, context.currentTime); // A4
+      gainNode.gain.setValueAtTime(0.1, context.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0, context.currentTime + 0.2);
+    }
+    
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.5);
+  };
+
+  // Add dark mode detection
+  useEffect(() => {
+    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleDarkModeChange = (e) => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        drawGrid(ctx, canvas.width, canvas.height);
+      }
+    };
+
+    darkModeMediaQuery.addEventListener('change', handleDarkModeChange);
+    return () => darkModeMediaQuery.removeEventListener('change', handleDarkModeChange);
+  }, []);
+
   return (
     <main className="min-h-screen flex flex-col items-center justify-start p-0 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="w-full max-w-[600px] mx-auto px-4 py-4">
@@ -484,7 +626,7 @@ export default function Home() {
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 dark:from-blue-500/30 dark:to-purple-500/30 rounded-lg blur-md group-hover:blur-lg transition-all duration-300"></div>
                 <canvas
                   ref={canvasRef}
-                  className="relative w-full max-w-[500px] aspect-square bg-white dark:bg-gray-700 rounded-lg border-2 border-gray-200 dark:border-gray-600 touch-none shadow-sm hover:shadow-xl transition-all duration-300"
+                  className="relative w-full max-w-[500px] aspect-square bg-white dark:bg-gray-800 rounded-lg border-2 border-gray-200 dark:border-gray-600 touch-none shadow-sm hover:shadow-xl transition-all duration-300"
                   onMouseDown={startDrawing}
                   onMouseMove={draw}
                   onMouseUp={stopDrawing}
